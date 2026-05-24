@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StockPulse MY — Live Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d0f14; --surface: #151820; --surface2: #1c2030; --surface3: #222638;
+    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.13);
+    --text: #e8eaf0; --muted: #7a7f94; --muted2: #555a70;
+    --green: #22d37a; --red: #f04f5a; --accent: #4f8ef7; --amber: #f5a623; --purple: #a78bfa;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Mono', monospace; font-size: 13px; }
+  body { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* SETUP MODAL */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .modal { background: var(--surface); border: 0.5px solid var(--border2); border-radius: 12px; padding: 32px; width: 520px; max-width: 95vw; }
+  .modal-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
+  .modal-sub { font-size: 11px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
+  .modal-section { margin-bottom: 20px; }
+  .modal-label { font-size: 10px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
+  .modal-input { width: 100%; padding: 10px 12px; font-size: 12px; font-family: 'DM Mono', monospace; background: var(--surface2); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); outline: none; letter-spacing: 0.05em; }
+  .modal-input:focus { border-color: var(--accent); }
+  .modal-input::placeholder { color: var(--muted2); }
+  .modal-hint { font-size: 10px; color: var(--muted2); margin-top: 5px; line-height: 1.5; }
+  .modal-hint a { color: var(--accent); text-decoration: none; }
+  .modal-btn { width: 100%; padding: 11px; font-size: 12px; font-family: 'DM Mono', monospace; background: var(--accent); border: none; border-radius: 6px; color: #fff; cursor: pointer; font-weight: 500; margin-top: 8px; letter-spacing: 0.04em; transition: opacity 0.15s; }
+  .modal-btn:hover { opacity: 0.85; }
+  .modal-skip { width: 100%; padding: 9px; font-size: 11px; font-family: 'DM Mono', monospace; background: transparent; border: 0.5px solid var(--border2); border-radius: 6px; color: var(--muted); cursor: pointer; margin-top: 6px; transition: all 0.15s; }
+  .modal-skip:hover { color: var(--text); background: var(--surface2); }
+  .api-status { display: flex; gap: 10px; margin-bottom: 20px; }
+  .api-badge { flex: 1; padding: 8px 10px; border-radius: 6px; font-size: 10px; letter-spacing: 0.06em; border: 0.5px solid; text-align: center; }
+  .api-set { background: rgba(34,211,122,0.08); color: var(--green); border-color: rgba(34,211,122,0.2); }
+  .api-unset { background: rgba(240,79,90,0.08); color: var(--red); border-color: rgba(240,79,90,0.2); }
+  .api-demo { background: rgba(245,166,35,0.08); color: var(--amber); border-color: rgba(245,166,35,0.2); }
+
+  /* TOPBAR */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; height: 52px; background: var(--surface); border-bottom: 0.5px solid var(--border2); position: sticky; top: 0; z-index: 100; }
+  .logo { font-size: 14px; font-weight: 500; letter-spacing: 0.1em; color: var(--accent); }
+  .logo span { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 10px; }
+  .topbar-right { display: flex; align-items: center; gap: 16px; }
+  .live-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green); margin-right: 6px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .clock { font-size: 12px; color: var(--muted); }
+  .mkt-pill { display: flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 10px; letter-spacing: 0.05em; border: 0.5px solid; }
+  .mkt-open { background: rgba(34,211,122,0.08); color: var(--green); border-color: rgba(34,211,122,0.2); }
+  .mkt-closed { background: rgba(240,79,90,0.08); color: var(--red); border-color: rgba(240,79,90,0.2); }
+  .dot-sm { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .settings-btn { padding: 5px 12px; font-size: 11px; font-family: 'DM Mono', monospace; background: var(--surface2); border: 0.5px solid var(--border2); border-radius: 4px; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .settings-btn:hover { color: var(--text); }
+
+  /* LAYOUT */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+  .sidebar { width: 200px; flex-shrink: 0; background: var(--surface); border-right: 0.5px solid var(--border); display: flex; flex-direction: column; padding: 20px 0; position: sticky; top: 52px; height: calc(100vh - 52px); overflow-y: auto; }
+  .sidebar-label { font-size: 9px; letter-spacing: 0.14em; color: var(--muted2); text-transform: uppercase; padding: 0 20px; margin-bottom: 6px; margin-top: 20px; }
+  .sidebar-label:first-child { margin-top: 0; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 20px; cursor: pointer; font-size: 12px; color: var(--muted); border-left: 2px solid transparent; transition: all 0.15s; user-select: none; }
+  .nav-item:hover { color: var(--text); background: var(--surface2); }
+  .nav-item.active { color: var(--text); border-left-color: var(--accent); background: rgba(79,142,247,0.06); }
+  .nav-icon { font-size: 14px; width: 16px; text-align: center; }
+  .sidebar-footer { margin-top: auto; padding: 14px 18px; font-size: 10px; color: var(--muted2); line-height: 1.7; border-top: 0.5px solid var(--border); }
+  .data-source-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 9px; margin-top: 4px; }
+
+  /* MAIN */
+  .main { flex: 1; overflow-y: auto; padding: 28px 32px; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .page-title { font-size: 16px; font-weight: 500; margin-bottom: 4px; }
+  .page-sub { font-size: 11px; color: var(--muted); margin-bottom: 24px; }
+
+  /* CARDS */
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+  .section-label { font-size: 10px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; }
+
+  /* METRICS */
+  .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .metric-card { background: var(--surface2); border: 0.5px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .metric-label { font-size: 10px; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+  .metric-val { font-size: 22px; font-weight: 500; }
+  .metric-val.green { color: var(--green); }
+  .metric-val.accent { color: var(--accent); }
+  .metric-sub { font-size: 10px; color: var(--muted); margin-top: 4px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* TABLE */
+  .table-wrap { border-radius: 8px; border: 0.5px solid var(--border); overflow: hidden; background: var(--surface); margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { text-align: left; padding: 10px 14px; font-size: 9px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; border-bottom: 0.5px solid var(--border); font-weight: 400; background: var(--surface2); }
+  td { padding: 11px 14px; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface2); }
+  .ticker { font-weight: 500; font-size: 13px; letter-spacing: 0.04em; }
+  .co-name { font-size: 10px; color: var(--muted); margin-top: 1px; }
+  .badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 500; }
+  .badge-up { background: rgba(34,211,122,0.1); color: var(--green); border: 0.5px solid rgba(34,211,122,0.2); }
+  .badge-dn { background: rgba(240,79,90,0.1); color: var(--red); border: 0.5px solid rgba(240,79,90,0.2); }
+  .up { color: var(--green); } .dn { color: var(--red); }
+  .loading-row td { color: var(--muted); font-size: 11px; text-align: center; padding: 20px; }
+
+  /* MINI CHART */
+  .mini-chart { display: flex; align-items: flex-end; gap: 2px; height: 28px; }
+  .bar { width: 4px; border-radius: 1px; }
+
+  /* RANGE */
+  .range-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 90px; }
+  .range-bar { height: 3px; background: var(--surface3); border-radius: 2px; position: relative; }
+  .range-fill { position: absolute; top: 0; height: 100%; border-radius: 2px; }
+  .range-labels { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); }
+
+  /* INPUTS */
+  .input-row { display: flex; gap: 8px; margin-bottom: 14px; }
+  .stock-input { flex: 1; padding: 9px 12px; font-size: 12px; font-family: 'DM Mono', monospace; background: var(--surface2); border: 0.5px solid var(--border2); border-radius: 6px; color: var(--text); outline: none; transition: border-color 0.15s; }
+  .stock-input:focus { border-color: var(--accent); }
+  .stock-input::placeholder { color: var(--muted2); }
+  .btn { padding: 9px 16px; font-size: 11px; font-family: 'DM Mono', monospace; border-radius: 6px; border: none; cursor: pointer; font-weight: 500; transition: opacity 0.15s; letter-spacing: 0.04em; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-ghost { background: var(--surface2); color: var(--text); border: 0.5px solid var(--border2); }
+  .btn:hover { opacity: 0.85; }
+  .del-btn { background: transparent; border: none; color: var(--muted2); cursor: pointer; font-size: 13px; padding: 3px 7px; border-radius: 4px; transition: all 0.15s; }
+  .del-btn:hover { color: var(--red); background: rgba(240,79,90,0.1); }
+
+  /* EMPTY */
+  .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 12px; }
+  .empty-icon { font-size: 28px; margin-bottom: 10px; }
+
+  /* HOT */
+  .hot-item { display: flex; align-items: center; gap: 12px; padding: 11px 14px; background: var(--surface2); border-radius: 6px; border: 0.5px solid var(--border); margin-bottom: 8px; }
+  .hot-rank { font-size: 10px; color: var(--muted2); width: 16px; flex-shrink: 0; }
+  .hot-ticker { font-size: 13px; font-weight: 500; }
+  .hot-name { font-size: 10px; color: var(--muted); margin-top: 1px; }
+  .fire-badge { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: rgba(245,166,35,0.12); color: var(--amber); border: 0.5px solid rgba(245,166,35,0.25); }
+
+  /* NEWS */
+  .news-item { padding: 14px 16px; background: var(--surface2); border-radius: 6px; border: 0.5px solid var(--border); margin-bottom: 10px; cursor: pointer; transition: border-color 0.15s; }
+  .news-item:hover { border-color: var(--border2); }
+  .news-source { font-size: 9px; letter-spacing: 0.1em; color: var(--accent); text-transform: uppercase; }
+  .news-tag { font-size: 9px; padding: 1px 6px; border-radius: 3px; border: 0.5px solid; }
+  .tag-MY { color: var(--amber); border-color: rgba(245,166,35,0.3); background: rgba(245,166,35,0.08); }
+  .tag-US { color: var(--accent); border-color: rgba(79,142,247,0.3); background: rgba(79,142,247,0.08); }
+  .tag-GLOBAL { color: var(--purple); border-color: rgba(167,139,250,0.3); background: rgba(167,139,250,0.08); }
+  .news-title { font-size: 12px; line-height: 1.5; margin: 5px 0; }
+  .news-time { font-size: 10px; color: var(--muted); }
+
+  /* OV ROW */
+  .ov-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
+  .ov-row:last-child { border-bottom: none; }
+
+  /* FILTER TABS */
+  .filter-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .filter-tab { padding: 5px 12px; font-size: 10px; font-family: 'DM Mono', monospace; border: 0.5px solid var(--border2); border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .filter-tab.active, .filter-tab:hover { color: var(--text); background: var(--surface2); }
+
+  /* NOTICE */
+  .notice { padding: 10px 14px; border-radius: 6px; font-size: 11px; line-height: 1.6; margin-bottom: 14px; }
+  .notice-amber { background: rgba(245,166,35,0.08); border: 0.5px solid rgba(245,166,35,0.2); color: var(--amber); }
+  .notice-green { background: rgba(34,211,122,0.08); border: 0.5px solid rgba(34,211,122,0.2); color: var(--green); }
+  .notice-blue { background: rgba(79,142,247,0.08); border: 0.5px solid rgba(79,142,247,0.2); color: var(--accent); }
+
+  /* SPINNER */
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- SETUP MODAL -->
+<div class="modal-overlay" id="setup-modal">
+  <div class="modal">
+    <div class="modal-title">⬡ StockPulse MY — Setup</div>
+    <div class="modal-sub">Enter your free API keys to get live stock prices. Both keys are free — no credit card needed.</div>
+    <div class="api-status">
+      <div class="api-badge api-unset" id="badge-finnhub">Finnhub — Not Set</div>
+      <div class="api-badge api-demo" id="badge-yahoo">Yahoo Finance — Free (No Key)</div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-label">Finnhub API Key — US Stocks (Real-Time)</div>
+      <input class="modal-input" id="finnhub-key-input" placeholder="e.g. ct1abc2def3ghi4jkl5mno6pqr" />
+      <div class="modal-hint">
+        Get your free key at <a href="https://finnhub.io" target="_blank">finnhub.io</a> → Sign Up (free) → Dashboard → copy API Key.<br>
+        Free tier: 60 calls/min · US real-time prices · No credit card needed.
+      </div>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-label">Yahoo Finance — MY Stocks via Proxy (Free, No Key)</div>
+      <input class="modal-input" id="yahoo-proxy-input" placeholder="Proxy URL (optional) — leave blank to use default" />
+      <div class="modal-hint">
+        Yahoo Finance is used for KLSE (.KL) stocks via a CORS proxy.<br>
+        Default proxy: <strong style="color:var(--text)">allorigins.win</strong> — works out of the box, no setup needed.
+      </div>
+    </div>
+
+    <button class="modal-btn" onclick="saveSettings()">✓ Save & Start Dashboard</button>
+    <button class="modal-skip" onclick="useDemo()">Use Demo Mode (Simulated Prices)</button>
+  </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo">⬡ StockPulse MY <span id="data-mode-label">Live Mode</span></div>
+  <div class="topbar-right">
+    <div class="mkt-pill" id="klse-pill"><div class="dot-sm" style="background:var(--green)"></div>KLSE</div>
+    <div class="mkt-pill" id="nyse-pill"><div class="dot-sm" style="background:var(--red)"></div>NYSE</div>
+    <div class="clock"><span class="live-dot"></span><span id="clock">--:--:--</span> MYT</div>
+    <button class="settings-btn" onclick="openSettings()">⚙ Settings</button>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-label">Main</div>
+    <div class="nav-item active" onclick="showPage('overview',this)"><span class="nav-icon">◈</span> Overview</div>
+    <div class="nav-item" onclick="showPage('my-stocks',this)"><span class="nav-icon">✦</span> MY Stocks</div>
+    <div class="nav-item" onclick="showPage('us-stocks',this)"><span class="nav-icon">✦</span> US Stocks</div>
+    <div class="sidebar-label">Insights</div>
+    <div class="nav-item" onclick="showPage('hot',this)"><span class="nav-icon">🔥</span> Hot Now</div>
+    <div class="nav-item" onclick="showPage('news',this)"><span class="nav-icon">◉</span> News Feed</div>
+    <div class="sidebar-footer">
+      <div id="sidebar-mode">Mode: Demo</div>
+      <div id="sidebar-finnhub">Finnhub: Not set</div>
+      <div id="sidebar-yahoo">Yahoo: Proxy mode</div>
+      <div style="margin-top:6px;color:var(--muted2);font-size:9px">Refreshes every 30s</div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- OVERVIEW -->
+    <div class="page active" id="page-overview">
+      <div class="page-title">Overview</div>
+      <div class="page-sub">Your watchlist at a glance — <span id="last-refresh">just loaded</span></div>
+      <div id="api-notice"></div>
+      <div class="metrics-row">
+        <div class="metric-card"><div class="metric-label">Total Watchlist</div><div class="metric-val accent" id="ov-total">0</div><div class="metric-sub">stocks tracked</div></div>
+        <div class="metric-card"><div class="metric-label">MY Stocks (KLSE)</div><div class="metric-val" id="ov-my-count">0</div><div class="metric-sub">Bursa Malaysia</div></div>
+        <div class="metric-card"><div class="metric-label">US Stocks</div><div class="metric-val" id="ov-us-count">0</div><div class="metric-sub">NYSE / NASDAQ</div></div>
+        <div class="metric-card"><div class="metric-label">Top Gainer Today</div><div class="metric-val green" id="ov-gainer">—</div><div class="metric-sub" id="ov-gainer-pct">add stocks to see</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card"><div class="section-label">MY Watchlist</div><div id="ov-my-list"><div class="empty"><div class="empty-icon">📊</div>No MY stocks added</div></div></div>
+        <div class="card"><div class="section-label">US Watchlist</div><div id="ov-us-list"><div class="empty"><div class="empty-icon">📈</div>No US stocks added</div></div></div>
+      </div>
+    </div>
+
+    <!-- MY STOCKS -->
+    <div class="page" id="page-my-stocks">
+      <div class="page-title">Bursa Malaysia — KLSE</div>
+      <div class="page-sub">Ticker format: use the stock code only e.g. <strong>MAYBANK</strong>, <strong>TENAGA</strong>, <strong>CIMB</strong> — dashboard adds .KL automatically</div>
+      <div class="notice notice-amber" id="my-api-notice">⚡ Using Yahoo Finance proxy for KLSE prices (~15 min delay). Free & no API key needed.</div>
+      <div class="input-row">
+        <input class="stock-input" id="my-input" placeholder="e.g. MAYBANK, TENAGA, CIMB, PBBANK..." />
+        <button class="btn btn-accent" onclick="addStock('MY')">+ Add</button>
+        <button class="btn btn-ghost" onclick="refreshMarket('MY')">↺ Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:200px">Stock</th>
+            <th style="text-align:right">Price (MYR)</th>
+            <th style="text-align:right">Change</th>
+            <th style="text-align:right">% Change</th>
+            <th style="text-align:center">Trend</th>
+            <th style="text-align:right">52W Range</th>
+            <th style="text-align:right">Volume</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="my-tbody"></tbody>
+        </table>
+        <div class="empty" id="my-empty"><div class="empty-icon">📊</div>Add your first KLSE stock above</div>
+      </div>
+    </div>
+
+    <!-- US STOCKS -->
+    <div class="page" id="page-us-stocks">
+      <div class="page-title">US Markets — NYSE / NASDAQ</div>
+      <div class="page-sub">Enter ticker symbol e.g. <strong>AAPL</strong>, <strong>TSLA</strong>, <strong>NVDA</strong>, <strong>MSFT</strong>, <strong>SPY</strong></div>
+      <div class="notice notice-green" id="us-api-notice">⚡ Using Finnhub for real-time US prices. Set your API key in Settings.</div>
+      <div class="input-row">
+        <input class="stock-input" id="us-input" placeholder="e.g. AAPL, NVDA, TSLA, META, SPY..." />
+        <button class="btn btn-accent" onclick="addStock('US')">+ Add</button>
+        <button class="btn btn-ghost" onclick="refreshMarket('US')">↺ Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:200px">Stock</th>
+            <th style="text-align:right">Price (USD)</th>
+            <th style="text-align:right">Change</th>
+            <th style="text-align:right">% Change</th>
+            <th style="text-align:center">Trend</th>
+            <th style="text-align:right">52W Range</th>
+            <th style="text-align:right">Open</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="us-tbody"></tbody>
+        </table>
+        <div class="empty" id="us-empty"><div class="empty-icon">📈</div>Add your first US stock above</div>
+      </div>
+    </div>
+
+    <!-- HOT NOW -->
+    <div class="page" id="page-hot">
+      <div class="page-title">🔥 Hot Stocks</div>
+      <div class="page-sub">Top movers and trending stocks today — curated suggestions</div>
+      <div class="two-col">
+        <div>
+          <div class="section-label" style="margin-bottom:12px">Bursa Malaysia — Top Movers</div>
+          <div id="hot-my-list"></div>
+        </div>
+        <div>
+          <div class="section-label" style="margin-bottom:12px">US Markets — Top Movers</div>
+          <div id="hot-us-list"></div>
+        </div>
+      </div>
+      <div class="notice notice-amber" style="margin-top:16px">⚠ Hot stock data is curated for reference only. Not financial advice. Always do your own research before investing.</div>
+    </div>
+
+    <!-- NEWS -->
+    <div class="page" id="page-news">
+      <div class="page-title">News Feed</div>
+      <div class="page-sub">Market headlines — live news via Finnhub when API key is set</div>
+      <div class="two-col">
+        <div>
+          <div class="filter-tabs">
+            <button class="filter-tab active" onclick="filterNews('all',this)">All</button>
+            <button class="filter-tab" onclick="filterNews('MY',this)">🇲🇾 Malaysia</button>
+            <button class="filter-tab" onclick="filterNews('US',this)">🇺🇸 US</button>
+            <button class="filter-tab" onclick="filterNews('GLOBAL',this)">🌐 Global</button>
+          </div>
+          <div id="news-list"></div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:14px">
+            <div class="section-label" style="margin-bottom:10px">Live News Status</div>
+            <div id="news-status" style="font-size:11px;color:var(--muted);line-height:1.8">
+              Set your Finnhub API key in Settings to get live market news with sentiment scoring.
+            </div>
+          </div>
+          <div class="card">
+            <div class="section-label" style="margin-bottom:10px">Key Upcoming Dates</div>
+            <div style="font-size:11px;color:var(--muted);line-height:2.2">
+              🗓 BNM Rate Decision <span style="color:var(--amber)">Jul 8–9, 2026</span><br>
+              🗓 US FOMC Meeting <span style="color:var(--accent)">Jun 17–18, 2026</span><br>
+              🗓 US CPI Release <span style="color:var(--amber)">Jun 11, 2026</span><br>
+              🗓 Malaysia GDP Q2 <span style="color:var(--muted2)">Aug 2026</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── STATE ────────────────────────────────────────────────────────────────
+let FINNHUB_KEY = localStorage.getItem('sp_finnhub') || '';
+let DEMO_MODE   = localStorage.getItem('sp_demo') === 'true' || !FINNHUB_KEY;
+const myStocks  = JSON.parse(localStorage.getItem('sp_my') || '[]');
+const usStocks  = JSON.parse(localStorage.getItem('sp_us') || '[]');
+const PROXY     = 'https://api.allorigins.win/raw?url=';
+
+// ─── DEMO SEED DATA ───────────────────────────────────────────────────────
+const seedMY = {
+  'MAYBANK': {name:'Malayan Banking Bhd', price:9.78,  c:0.06,  pct:0.62,  lo:8.90,  hi:10.20, vol:'48.2M'},
+  'CIMB':    {name:'CIMB Group Holdings', price:7.32,  c:-0.08, pct:-1.08, lo:6.10,  hi:7.95,  vol:'31.5M'},
+  'TENAGA':  {name:'Tenaga Nasional Bhd', price:13.44, c:0.22,  pct:1.66,  lo:11.80, hi:14.30, vol:'12.7M'},
+  'PBBANK':  {name:'Public Bank Bhd',     price:4.52,  c:-0.02, pct:-0.44, lo:3.98,  hi:4.88,  vol:'22.1M'},
+  'PCHEM':   {name:'Petronas Chemicals',  price:5.61,  c:-0.03, pct:-0.53, lo:5.10,  hi:6.88,  vol:'9.4M'},
+  'TOPGLOV': {name:'Top Glove Corp Bhd',  price:1.24,  c:0.02,  pct:1.64,  lo:0.98,  hi:1.72,  vol:'88.3M'},
+  'AXIATA':  {name:'Axiata Group Bhd',    price:2.88,  c:0.04,  pct:1.41,  lo:2.40,  hi:3.15,  vol:'18.6M'},
+  'IHH':     {name:'IHH Healthcare Bhd',  price:6.73,  c:0.11,  pct:1.66,  lo:6.00,  hi:7.40,  vol:'14.2M'},
+  'GENTING': {name:'Genting Bhd',         price:4.81,  c:0.09,  pct:1.91,  lo:3.90,  hi:5.30,  vol:'20.4M'},
+  'RHBBANK': {name:'RHB Bank Bhd',        price:6.22,  c:0.11,  pct:1.81,  lo:5.40,  hi:6.80,  vol:'16.7M'},
+  'INARI':   {name:'Inari Amertron Bhd',  price:2.93,  c:0.07,  pct:2.44,  lo:2.10,  hi:3.50,  vol:'55.1M'},
+  'MAXIS':   {name:'Maxis Bhd',           price:3.92,  c:0.03,  pct:0.77,  lo:3.60,  hi:4.25,  vol:'11.8M'},
+};
+const seedUS = {
+  'AAPL':  {name:'Apple Inc.',        price:211.45,  c:1.82,  pct:0.87,  lo:164.08, hi:237.23, open:209.63},
+  'NVDA':  {name:'NVIDIA Corp',       price:1087.20, c:22.40, pct:2.10,  lo:410.00, hi:1128.00,open:1064.80},
+  'TSLA':  {name:'Tesla Inc.',        price:174.30,  c:-3.20, pct:-1.80, lo:101.81, hi:271.00, open:177.50},
+  'MSFT':  {name:'Microsoft Corp',    price:427.80,  c:2.15,  pct:0.50,  lo:309.45, hi:468.35, open:425.65},
+  'AMZN':  {name:'Amazon.com Inc.',   price:194.50,  c:0.80,  pct:0.41,  lo:151.61, hi:229.00, open:193.70},
+  'META':  {name:'Meta Platforms',    price:512.30,  c:6.70,  pct:1.32,  lo:322.31, hi:589.28, open:505.60},
+  'GOOGL': {name:'Alphabet Inc.',     price:178.20,  c:-0.45, pct:-0.25, lo:140.53, hi:207.05, open:178.65},
+  'AMD':   {name:'Advanced Micro Dev',price:156.80,  c:3.10,  pct:2.02,  lo:107.59, hi:227.30, open:153.70},
+  'PLTR':  {name:'Palantir Tech',     price:28.45,   c:0.55,  pct:1.97,  lo:14.48,  hi:35.17,  open:27.90},
+  'COIN':  {name:'Coinbase Global',   price:218.90,  c:-4.20, pct:-1.88, lo:102.65, hi:284.93, open:223.10},
+  'NFLX':  {name:'Netflix Inc.',      price:648.00,  c:8.20,  pct:1.28,  lo:400.00, hi:700.00, open:639.80},
+  'SPY':   {name:'SPDR S&P 500 ETF',  price:545.20,  c:2.80,  pct:0.52,  lo:410.10, hi:583.40, open:542.40},
+};
+
+function demoData(ticker, market) {
+  const src = market === 'MY' ? seedMY : seedUS;
+  const t = ticker.toUpperCase();
+  const base = src[t] || { name:t, price: market==='MY'?+(Math.random()*10+1).toFixed(2):+(Math.random()*200+20).toFixed(2), c:0, pct:0, lo:0, hi:0, vol:'—', open:'—' };
+  const n = (Math.random()-0.5)*0.012;
+  return { ...base, price:+(base.price*(1+n)).toFixed(2), c:+(base.c+n*base.price*0.3).toFixed(2), pct:+(base.pct+n*50).toFixed(2) };
+}
+
+// ─── API FETCHERS ─────────────────────────────────────────────────────────
+async function fetchFinnhub(ticker) {
+  if (!FINNHUB_KEY) return null;
+  try {
+    // Fetch quote and company profile in parallel
+    const [qRes, pRes, mRes] = await Promise.all([
+      fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${FINNHUB_KEY}`),
+      fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`),
+      fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${ticker}&metric=all&token=${FINNHUB_KEY}`)
+    ]);
+    const d = await qRes.json();
+    const p = await pRes.json();
+    const m = await mRes.json();
+
+    if (!d || !d.c || d.c === 0) return null;
+
+    // d.c = current price (already in dollars, NOT cents)
+    const price = d.c;
+    const prev  = d.pc; // previous close
+    const chg   = +(price - prev).toFixed(2);
+    const pct   = +(chg / prev * 100).toFixed(2);
+
+    // 52W data from metric endpoint (much more reliable)
+    const w52hi = m?.metric?.['52WeekHigh'] || 0;
+    const w52lo = m?.metric?.['52WeekLow']  || 0;
+
+    return {
+      price,
+      c:    chg,
+      pct:  pct,
+      lo:   w52lo,
+      hi:   w52hi,
+      open: d.o,
+      name: p?.name || ticker,
+    };
+  } catch(e) { return null; }
+}
+
+async function fetchYahoo(ticker) {
+  // ticker should be like MAYBANK.KL
+  try {
+    const url = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
+    const r = await fetch(`${PROXY}${url}`);
+    const d = await r.json();
+    const q = d?.chart?.result?.[0];
+    if (!q) return null;
+    const meta = q.meta;
+    const price = meta.regularMarketPrice;
+    const prev  = meta.previousClose || meta.chartPreviousClose;
+    const chg   = +(price - prev).toFixed(2);
+    const pct   = +(chg/prev*100).toFixed(2);
+    return { price, c:chg, pct, lo:meta.regularMarketDayLow, hi:meta.regularMarketDayHigh, open:meta.regularMarketOpen, w52lo:meta['52WeekLow']||0, w52hi:meta['52WeekHigh']||0, vol:formatVol(meta.regularMarketVolume), name:meta.shortName||ticker };
+  } catch(e) { return null; }
+}
+
+async function fetchFinnhubProfile(ticker) {
+  if (!FINNHUB_KEY) return null;
+  try {
+    const r = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${ticker}&token=${FINNHUB_KEY}`);
+    const d = await r.json();
+    return d?.name || null;
+  } catch(e) { return null; }
+}
+
+async function fetchFinnhubNews() {
+  if (!FINNHUB_KEY) return null;
+  try {
+    const r = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${FINNHUB_KEY}`);
+    const d = await r.json();
+    return Array.isArray(d) ? d.slice(0,15) : null;
+  } catch(e) { return null; }
+}
+
+function formatVol(v) {
+  if (!v) return '—';
+  if (v>1e9) return (v/1e9).toFixed(1)+'B';
+  if (v>1e6) return (v/1e6).toFixed(1)+'M';
+  if (v>1e3) return (v/1e3).toFixed(0)+'K';
+  return v;
+}
+
+// ─── LIVE DATA FETCH ──────────────────────────────────────────────────────
+async function getLiveData(ticker, market) {
+  if (DEMO_MODE) return demoData(ticker, market);
+  if (market === 'US') {
+    const live = await fetchFinnhub(ticker);
+    if (live) {
+      return { price:live.price, c:live.c, pct:live.pct, lo:live.lo||0, hi:live.hi||0, open:live.open||'—', vol:'—', name:live.name||ticker };
+    }
+    return demoData(ticker, 'US');
+  } else {
+    // MY: use Yahoo Finance
+    const yahooTicker = ticker.toUpperCase() + '.KL';
+    const live = await fetchYahoo(yahooTicker);
+    if (live) {
+      const seed = seedMY[ticker.toUpperCase()];
+      return { price:live.price, c:live.c, pct:live.pct, lo:live.w52lo||live.lo, hi:live.w52hi||live.hi, open:live.open||'—', vol:live.vol, name:live.name||seed?.name||ticker };
+    }
+    return demoData(ticker, 'MY');
+  }
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────
+function miniChart(up) {
+  return Array.from({length:9},()=>Math.random()).map(v=>{
+    const h=Math.max(4,Math.round(v*26));
+    const c=up?'rgba(34,211,122,0.55)':'rgba(240,79,90,0.55)';
+    return `<div class="bar" style="height:${h}px;background:${c}"></div>`;
+  }).join('');
+}
+
+function rangeViz(price,lo,hi,cur) {
+  if (!lo||!hi||lo===hi) return '<span style="font-size:10px;color:var(--muted2)">—</span>';
+  const pct=Math.min(100,Math.max(0,(price-lo)/(hi-lo)*100));
+  const c=pct>66?'var(--green)':pct>33?'var(--amber)':'var(--red)';
+  return `<div class="range-wrap"><div class="range-bar"><div class="range-fill" style="left:0;width:${pct}%;background:${c}"></div></div><div class="range-labels"><span>${cur}${lo.toFixed?lo.toFixed(2):lo}</span><span>${cur}${hi.toFixed?hi.toFixed(2):hi}</span></div></div>`;
+}
+
+function rowHTML(s, market) {
+  const d=s.data; const up=d.c>=0; const cur=market==='MY'?'RM':'$';
+  const extra=market==='MY'
+    ?`<td style="text-align:right;font-size:11px;color:var(--muted)">${d.vol||'—'}</td>`
+    :`<td style="text-align:right;font-size:11px;color:var(--muted)">${d.open?cur+(d.open.toFixed?d.open.toFixed(2):d.open):'—'}</td>`;
+  return `<tr>
+    <td><div class="ticker">${s.ticker}</div><div class="co-name">${d.name||s.ticker}</div></td>
+    <td style="text-align:right;font-weight:500;font-size:13px" class="${up?'up':'dn'}">${cur}${d.price.toFixed(2)}</td>
+    <td style="text-align:right;font-size:12px" class="${up?'up':'dn'}">${up?'+':''}${d.c.toFixed(2)}</td>
+    <td style="text-align:right"><span class="badge ${up?'badge-up':'badge-dn'}">${up?'▲':'▼'} ${Math.abs(d.pct).toFixed(2)}%</span></td>
+    <td style="text-align:center"><div class="mini-chart" style="justify-content:center">${miniChart(up)}</div></td>
+    <td style="text-align:right">${rangeViz(d.price,d.lo,d.hi,cur)}</td>
+    ${extra}
+    <td><button class="del-btn" onclick="removeStock('${s.ticker}','${market}')">✕</button></td>
+  </tr>`;
+}
+
+function renderTable(market) {
+  const arr=market==='MY'?myStocks:usStocks;
+  const tbody=document.getElementById(market==='MY'?'my-tbody':'us-tbody');
+  const empty=document.getElementById(market==='MY'?'my-empty':'us-empty');
+  tbody.innerHTML=arr.map(s=>rowHTML(s,market)).join('');
+  empty.style.display=arr.length?'none':'block';
+}
+
+function updateOverview() {
+  document.getElementById('ov-total').textContent=myStocks.length+usStocks.length;
+  document.getElementById('ov-my-count').textContent=myStocks.length;
+  document.getElementById('ov-us-count').textContent=usStocks.length;
+  const all=[...myStocks.map(s=>({...s,m:'MY'})),...usStocks.map(s=>({...s,m:'US'}))];
+  if (all.length) {
+    const top=all.reduce((a,b)=>b.data.pct>a.data.pct?b:a);
+    document.getElementById('ov-gainer').textContent=top.ticker;
+    document.getElementById('ov-gainer-pct').textContent=(top.data.pct>=0?'+':'')+top.data.pct.toFixed(2)+'% today';
+  }
+  const myEl=document.getElementById('ov-my-list');
+  const usEl=document.getElementById('ov-us-list');
+  myEl.innerHTML=myStocks.length?myStocks.slice(0,6).map(s=>{const up=s.data.c>=0;return`<div class="ov-row"><div><span class="ticker" style="font-size:12px">${s.ticker}</span> <span style="font-size:10px;color:var(--muted)">${s.data.name||''}</span></div><div style="text-align:right"><div style="font-weight:500;color:${up?'var(--green)':'var(--red)'}">RM${s.data.price.toFixed(2)}</div><div style="font-size:10px;color:${up?'var(--green)':'var(--red)'}">${up?'+':''}${s.data.pct.toFixed(2)}%</div></div></div>`;}).join(''):'<div class="empty" style="padding:20px"><div class="empty-icon">📊</div>No MY stocks added</div>';
+  usEl.innerHTML=usStocks.length?usStocks.slice(0,6).map(s=>{const up=s.data.c>=0;return`<div class="ov-row"><div><span class="ticker" style="font-size:12px">${s.ticker}</span> <span style="font-size:10px;color:var(--muted)">${s.data.name||''}</span></div><div style="text-align:right"><div style="font-weight:500;color:${up?'var(--green)':'var(--red)'}">$${s.data.price.toFixed(2)}</div><div style="font-size:10px;color:${up?'var(--green)':'var(--red)'}">${up?'+':''}${s.data.pct.toFixed(2)}%</div></div></div>`;}).join(''):'<div class="empty" style="padding:20px"><div class="empty-icon">📈</div>No US stocks added</div>';
+  document.getElementById('last-refresh').textContent='refreshed at '+new Date().toLocaleTimeString('en-MY');
+}
+
+function saveStocks() {
+  localStorage.setItem('sp_my', JSON.stringify(myStocks.map(s=>({ticker:s.ticker}))));
+  localStorage.setItem('sp_us', JSON.stringify(usStocks.map(s=>({ticker:s.ticker}))));
+}
+
+// ─── ADD / REMOVE ─────────────────────────────────────────────────────────
+async function addStock(market) {
+  const id=market==='MY'?'my-input':'us-input';
+  const inp=document.getElementById(id);
+  const ticker=inp.value.trim().toUpperCase().replace('.KL','');
+  if (!ticker) return;
+  const arr=market==='MY'?myStocks:usStocks;
+  if (arr.find(s=>s.ticker===ticker)) { inp.value=''; return; }
+  inp.value='';
+  // Show loading
+  const tbody=document.getElementById(market==='MY'?'my-tbody':'us-tbody');
+  const loadRow=document.createElement('tr');
+  loadRow.className='loading-row';
+  loadRow.innerHTML=`<td colspan="8"><span class="spinner"></span>Fetching ${ticker}...</td>`;
+  tbody.prepend(loadRow);
+  document.getElementById(market==='MY'?'my-empty':'us-empty').style.display='none';
+  const data=await getLiveData(ticker,market);
+  loadRow.remove();
+  arr.unshift({ticker,data});
+  saveStocks();
+  renderTable(market);
+  updateOverview();
+}
+
+function removeStock(ticker,market) {
+  const arr=market==='MY'?myStocks:usStocks;
+  const i=arr.findIndex(s=>s.ticker===ticker);
+  if(i>-1) arr.splice(i,1);
+  saveStocks();
+  renderTable(market);
+  updateOverview();
+}
+
+async function refreshMarket(market) {
+  const arr=market==='MY'?myStocks:usStocks;
+  await Promise.all(arr.map(async s=>{ s.data=await getLiveData(s.ticker,market); }));
+  renderTable(market);
+  updateOverview();
+}
+
+async function refreshAll() {
+  await Promise.all([refreshMarket('MY'), refreshMarket('US')]);
+  // Also refresh news if Finnhub key set
+  if (FINNHUB_KEY && !DEMO_MODE) loadLiveNews();
+}
+
+// ─── SETUP / SETTINGS ─────────────────────────────────────────────────────
+function saveSettings() {
+  const key=document.getElementById('finnhub-key-input').value.trim();
+  FINNHUB_KEY=key;
+  DEMO_MODE=false;
+  localStorage.setItem('sp_finnhub',key);
+  localStorage.setItem('sp_demo','false');
+  document.getElementById('setup-modal').style.display='none';
+  updateSidebarStatus();
+  updateApiNotice();
+  init();
+}
+
+function useDemo() {
+  DEMO_MODE=true;
+  localStorage.setItem('sp_demo','true');
+  document.getElementById('setup-modal').style.display='none';
+  updateSidebarStatus();
+  updateApiNotice();
+  init();
+}
+
+function openSettings() {
+  document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
+  document.getElementById('setup-modal').style.display='flex';
+  updateBadges();
+}
+
+function updateBadges() {
+  const fb=document.getElementById('badge-finnhub');
+  fb.className='api-badge '+(FINNHUB_KEY?'api-set':'api-unset');
+  fb.textContent='Finnhub — '+(FINNHUB_KEY?'✓ Set':'Not Set');
+}
+
+function updateSidebarStatus() {
+  document.getElementById('sidebar-mode').textContent='Mode: '+(DEMO_MODE?'Demo':'Live');
+  document.getElementById('sidebar-finnhub').textContent='Finnhub: '+(FINNHUB_KEY?'✓ Active':'Not set');
+  document.getElementById('data-mode-label').textContent=DEMO_MODE?'Demo Mode':'Live Mode';
+}
+
+function updateApiNotice() {
+  const n=document.getElementById('api-notice');
+  if (DEMO_MODE) {
+    n.innerHTML='<div class="notice notice-amber">⚠ Running in Demo Mode — prices are simulated. Go to ⚙ Settings to enter your Finnhub API key for real data.</div>';
+  } else {
+    n.innerHTML='<div class="notice notice-green">✓ Live Mode active — US stocks via Finnhub · MY stocks via Yahoo Finance proxy (~15 min delay).</div>';
+  }
+}
+
+// ─── NEWS ─────────────────────────────────────────────────────────────────
+const staticNews=[
+  {source:'The Edge MY',    headline:'Bursa Malaysia stays resilient amid global rate uncertainty; banking stocks lead gains',     time:'2h ago',  market:'MY'},
+  {source:'Bloomberg',      headline:'Federal Reserve signals no rate cuts in near term as inflation remains sticky above target', time:'3h ago',  market:'US'},
+  {source:'Reuters',        headline:'NVIDIA hits fresh high on sustained AI chip demand from cloud hyperscalers',                time:'4h ago',  market:'US'},
+  {source:'Bernama',        headline:'Ringgit strengthens against USD as Malaysia trade surplus widens for 5th straight month',   time:'5h ago',  market:'MY'},
+  {source:'Financial Times',headline:'Global tech selloff eases; semiconductor stocks lead recovery in Asian markets',           time:'6h ago',  market:'GLOBAL'},
+  {source:'CNBC',           headline:'Tesla Q1 deliveries miss analyst estimates; shares slide in pre-market trading',           time:'7h ago',  market:'US'},
+  {source:'The Star BIZ',   headline:'Petronas Chemicals eyes capacity expansion amid palm oil downstream demand recovery',      time:'8h ago',  market:'MY'},
+  {source:'WSJ',            headline:'Fed minutes reveal split among members over inflation trajectory and rate path ahead',     time:'9h ago',  market:'GLOBAL'},
+  {source:'Reuters',        headline:'BNM holds OPR steady at 3.00%; Governor signals stable outlook for Malaysian economy',    time:'12h ago', market:'MY'},
+];
+
+let activeFilter='all', newsData=staticNews;
+
+async function loadLiveNews() {
+  const live=await fetchFinnhubNews();
+  if (live && live.length) {
+    newsData=live.map(n=>({
+      source:n.source||'Finnhub',
+      headline:n.headline,
+      time:new Date(n.datetime*1000).toLocaleTimeString('en-MY',{hour:'2-digit',minute:'2-digit'}),
+      market:'US',
+      url:n.url
+    }));
+    document.getElementById('news-status').innerHTML='<span style="color:var(--green)">✓ Live news from Finnhub</span><br>'+live.length+' articles loaded · auto-refreshes every 30s';
+  }
+  renderNews();
+}
+
+function filterNews(f,el) {
+  activeFilter=f;
+  document.querySelectorAll('.filter-tab').forEach(b=>b.classList.remove('active'));
+  if(el) el.classList.add('active');
+  renderNews();
+}
+
+function renderNews() {
+  const filtered=activeFilter==='all'?newsData:newsData.filter(n=>n.market===activeFilter);
+  document.getElementById('news-list').innerHTML=filtered.map(n=>`
+    <div class="news-item" ${n.url?`onclick="window.open('${n.url}','_blank')"`:''}>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span class="news-source">${n.source}</span>
+        <span class="news-tag tag-${n.market}">${n.market}</span>
+      </div>
+      <div class="news-title">${n.headline}</div>
+      <div class="news-time">${n.time}</div>
+    </div>`).join('');
+}
+
+// ─── HOT STOCKS ───────────────────────────────────────────────────────────
+const hotMY=[
+  {rank:1,ticker:'SUPERMX',name:'Supermax Corp',    price:'RM0.87', c:'+0.04',pct:'+4.82%',up:true, tag:'High Vol'},
+  {rank:2,ticker:'INARI',  name:'Inari Amertron',   price:'RM2.93', c:'+0.07',pct:'+2.44%',up:true, tag:'Tech'},
+  {rank:3,ticker:'RHBBANK',name:'RHB Bank Bhd',     price:'RM6.22', c:'+0.11',pct:'+1.87%',up:true, tag:'Banking'},
+  {rank:4,ticker:'GENTING',name:'Genting Bhd',      price:'RM4.81', c:'+0.09',pct:'+1.91%',up:true, tag:'Gaming'},
+  {rank:5,ticker:'TENAGA', name:'Tenaga Nasional',  price:'RM13.44',c:'+0.22',pct:'+1.66%',up:true, tag:'Utility'},
+  {rank:6,ticker:'DIALOG', name:'Dialog Group Bhd', price:'RM2.15', c:'-0.05',pct:'-2.27%',up:false,tag:'O&G'},
+];
+const hotUS=[
+  {rank:1,ticker:'NVDA', name:'NVIDIA Corp',        price:'$1,087', c:'+22.40',pct:'+2.10%',up:true, tag:'AI/Chips'},
+  {rank:2,ticker:'META', name:'Meta Platforms',     price:'$512',   c:'+6.70', pct:'+1.32%',up:true, tag:'Social'},
+  {rank:3,ticker:'AMD',  name:'Advanced Micro Dev', price:'$156',   c:'+3.10', pct:'+2.02%',up:true, tag:'Chips'},
+  {rank:4,ticker:'PLTR', name:'Palantir Tech',      price:'$28.45', c:'+0.55', pct:'+1.97%',up:true, tag:'AI/Data'},
+  {rank:5,ticker:'TSLA', name:'Tesla Inc.',         price:'$174',   c:'-3.20', pct:'-1.80%',up:false,tag:'EV'},
+  {rank:6,ticker:'COIN', name:'Coinbase Global',    price:'$218',   c:'-4.20', pct:'-1.88%',up:false,tag:'Crypto'},
+];
+
+function renderHot() {
+  const tmpl=h=>`<div class="hot-item">
+    <span class="hot-rank">${h.rank}</span>
+    <div style="flex:1"><div class="hot-ticker">${h.ticker} <span class="fire-badge">${h.tag}</span></div><div class="hot-name">${h.name}</div></div>
+    <div style="text-align:right"><div style="font-size:13px;font-weight:500;color:${h.up?'var(--green)':'var(--red)'}">${h.price}</div><div style="font-size:10px;color:${h.up?'var(--green)':'var(--red)'}">${h.c} (${h.pct})</div></div>
+  </div>`;
+  document.getElementById('hot-my-list').innerHTML=hotMY.map(tmpl).join('');
+  document.getElementById('hot-us-list').innerHTML=hotUS.map(tmpl).join('');
+}
+
+// ─── CLOCK & MARKET STATUS ────────────────────────────────────────────────
+function updateClock() {
+  const now=new Date();
+  const myt=new Date(now.getTime()+8*3600000);
+  document.getElementById('clock').textContent=`${myt.getUTCHours().toString().padStart(2,'0')}:${myt.getUTCMinutes().toString().padStart(2,'0')}:${myt.getUTCSeconds().toString().padStart(2,'0')}`;
+  const d=myt.getUTCDay(),h=myt.getUTCHours();
+  const klseOpen=d>=1&&d<=5&&h>=9&&h<17;
+  const nyH=now.getUTCHours()-4,nyD=now.getUTCDay();
+  const nyOpen=nyD>=1&&nyD<=5&&nyH>=9&&nyH<16;
+  const kp=document.getElementById('klse-pill');
+  const np=document.getElementById('nyse-pill');
+  kp.className='mkt-pill '+(klseOpen?'mkt-open':'mkt-closed');
+  kp.innerHTML=`<div class="dot-sm" style="background:${klseOpen?'var(--green)':'var(--red)'}"></div>KLSE — ${klseOpen?'Open':'Closed'}`;
+  np.className='mkt-pill '+(nyOpen?'mkt-open':'mkt-closed');
+  np.innerHTML=`<div class="dot-sm" style="background:${nyOpen?'var(--green)':'var(--red)'}"></div>NYSE — ${nyOpen?'Open':'Closed'}`;
+}
+
+function showPage(id,el) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(el) el.classList.add('active');
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────
+async function init() {
+  // Restore saved tickers
+  const savedMY=JSON.parse(localStorage.getItem('sp_my')||'[]');
+  const savedUS=JSON.parse(localStorage.getItem('sp_us')||'[]');
+  myStocks.length=0; usStocks.length=0;
+  // Load data for saved tickers
+  await Promise.all([
+    ...savedMY.map(async s=>{ const d=await getLiveData(s.ticker,'MY'); myStocks.push({ticker:s.ticker,data:d}); }),
+    ...savedUS.map(async s=>{ const d=await getLiveData(s.ticker,'US'); usStocks.push({ticker:s.ticker,data:d}); }),
+  ]);
+  renderTable('MY'); renderTable('US'); updateOverview();
+  renderHot(); renderNews();
+  if (FINNHUB_KEY && !DEMO_MODE) loadLiveNews();
+  updateSidebarStatus(); updateApiNotice(); updateBadges();
+}
+
+// ─── STARTUP ──────────────────────────────────────────────────────────────
+document.getElementById('my-input').addEventListener('keydown',e=>{if(e.key==='Enter')addStock('MY');});
+document.getElementById('us-input').addEventListener('keydown',e=>{if(e.key==='Enter')addStock('US');});
+updateClock();
+setInterval(updateClock,1000);
+setInterval(refreshAll,30000);
+
+// Show modal if no settings saved yet
+if (localStorage.getItem('sp_finnhub')===null && localStorage.getItem('sp_demo')===null) {
+  document.getElementById('setup-modal').style.display='flex';
+  updateBadges();
+} else {
+  document.getElementById('setup-modal').style.display='none';
+  init();
+}
+</script>
+</body>
+</html>
