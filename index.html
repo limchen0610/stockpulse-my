@@ -178,7 +178,7 @@
     <div class="modal-sub">Enter your free API keys to get live stock prices. Both keys are free — no credit card needed.</div>
     <div class="api-status">
       <div class="api-badge api-unset" id="badge-finnhub">Finnhub — Not Set</div>
-      <div class="api-badge api-demo" id="badge-yahoo">Yahoo Finance — Free (No Key)</div>
+      <div class="api-badge api-unset" id="badge-twelve">Twelve Data — Not Set</div>
     </div>
 
     <div class="modal-section">
@@ -191,11 +191,11 @@
     </div>
 
     <div class="modal-section">
-      <div class="modal-label">Yahoo Finance — MY Stocks via Proxy (Free, No Key)</div>
-      <input class="modal-input" id="yahoo-proxy-input" placeholder="Proxy URL (optional) — leave blank to use default" />
+      <div class="modal-label">Twelve Data API Key — MY Stocks / KLSE (Real Data)</div>
+      <input class="modal-input" id="twelve-key-input" placeholder="e.g. f398e0575c244478ae7903aa1968a32b" />
       <div class="modal-hint">
-        Yahoo Finance is used for KLSE (.KL) stocks via a CORS proxy.<br>
-        Default proxy: <strong style="color:var(--text)">allorigins.win</strong> — works out of the box, no setup needed.
+        Get your free key at <a href="https://twelvedata.com" target="_blank">twelvedata.com</a> → Sign Up (free) → copy API Key.<br>
+        Free tier: 800 requests/day · Supports KLSE (Bursa Malaysia) · No credit card needed.
       </div>
     </div>
 
@@ -228,7 +228,7 @@
     <div class="sidebar-footer">
       <div id="sidebar-mode">Mode: Demo</div>
       <div id="sidebar-finnhub">Finnhub: Not set</div>
-      <div id="sidebar-yahoo">Yahoo: Proxy mode</div>
+      <div id="sidebar-yahoo">Twelve Data MY: Not set</div>
       <div style="margin-top:6px;color:var(--muted2);font-size:9px">Refreshes every 30s</div>
     </div>
   </div>
@@ -257,7 +257,7 @@
     <div class="page" id="page-my-stocks">
       <div class="page-title">Bursa Malaysia — KLSE</div>
       <div class="page-sub">Ticker format: use the stock code only e.g. <strong>MAYBANK</strong>, <strong>TENAGA</strong>, <strong>CIMB</strong> — dashboard adds .KL automatically</div>
-      <div class="notice notice-amber" id="my-api-notice">⚡ Using Yahoo Finance proxy for KLSE prices (~15 min delay). Free & no API key needed.</div>
+      <div class="notice notice-amber" id="my-api-notice">⚡ Using Twelve Data for KLSE prices. Set your Twelve Data API key in Settings for live data.</div>
       <div class="input-row">
         <input class="stock-input" id="my-input" placeholder="e.g. MAYBANK, TENAGA, CIMB, PBBANK..." />
         <button class="btn btn-accent" onclick="addStock('MY')">+ Add</button>
@@ -365,11 +365,11 @@
 
 <script>
 // ─── STATE ────────────────────────────────────────────────────────────────
-let FINNHUB_KEY = localStorage.getItem('sp_finnhub') || '';
-let DEMO_MODE   = localStorage.getItem('sp_demo') === 'true' || !FINNHUB_KEY;
-const myStocks  = JSON.parse(localStorage.getItem('sp_my') || '[]');
-const usStocks  = JSON.parse(localStorage.getItem('sp_us') || '[]');
-const PROXY     = 'https://api.allorigins.win/raw?url=';
+let FINNHUB_KEY    = localStorage.getItem('sp_finnhub') || '';
+let TWELVEDATA_KEY = localStorage.getItem('sp_twelve') || '';
+let DEMO_MODE      = localStorage.getItem('sp_demo') === 'true' || (localStorage.getItem('sp_demo') === null && !FINNHUB_KEY && !TWELVEDATA_KEY);
+const myStocks     = JSON.parse(localStorage.getItem('sp_my') || '[]');
+const usStocks     = JSON.parse(localStorage.getItem('sp_us') || '[]');
 
 // ─── DEMO SEED DATA ───────────────────────────────────────────────────────
 const seedMY = {
@@ -447,20 +447,28 @@ async function fetchFinnhub(ticker) {
   } catch(e) { return null; }
 }
 
-async function fetchYahoo(ticker) {
-  // ticker should be like MAYBANK.KL
+async function fetchTwelveData(ticker) {
+  if (!TWELVEDATA_KEY) return null;
   try {
-    const url = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`);
-    const r = await fetch(`${PROXY}${url}`);
+    // Twelve Data uses ticker:KLSE format for Bursa Malaysia
+    const symbol = encodeURIComponent(ticker + ':KLSE');
+    const r = await fetch(`https://api.twelvedata.com/quote?symbol=${symbol}&apikey=${TWELVEDATA_KEY}`);
     const d = await r.json();
-    const q = d?.chart?.result?.[0];
-    if (!q) return null;
-    const meta = q.meta;
-    const price = meta.regularMarketPrice;
-    const prev  = meta.previousClose || meta.chartPreviousClose;
-    const chg   = +(price - prev).toFixed(2);
-    const pct   = +(chg/prev*100).toFixed(2);
-    return { price, c:chg, pct, lo:meta.regularMarketDayLow, hi:meta.regularMarketDayHigh, open:meta.regularMarketOpen, w52lo:meta['52WeekLow']||0, w52hi:meta['52WeekHigh']||0, vol:formatVol(meta.regularMarketVolume), name:meta.shortName||ticker };
+    if (!d || d.status === 'error' || !d.close) return null;
+    const price  = +parseFloat(d.close).toFixed(3);
+    const prev   = +parseFloat(d.previous_close).toFixed(3);
+    const chg    = +(price - prev).toFixed(3);
+    const pct    = +(chg / prev * 100).toFixed(2);
+    return {
+      price,
+      c:    chg,
+      pct:  pct,
+      lo:   +parseFloat(d.fifty_two_week?.low  || d.low  || 0).toFixed(3),
+      hi:   +parseFloat(d.fifty_two_week?.high || d.high || 0).toFixed(3),
+      open: +parseFloat(d.open).toFixed(3),
+      vol:  formatVol(+d.volume),
+      name: d.name || ticker,
+    };
   } catch(e) { return null; }
 }
 
@@ -500,12 +508,10 @@ async function getLiveData(ticker, market) {
     }
     return demoData(ticker, 'US');
   } else {
-    // MY: use Yahoo Finance
-    const yahooTicker = ticker.toUpperCase() + '.KL';
-    const live = await fetchYahoo(yahooTicker);
+    // MY: use Twelve Data (KLSE)
+    const live = await fetchTwelveData(ticker.toUpperCase());
     if (live) {
-      const seed = seedMY[ticker.toUpperCase()];
-      return { price:live.price, c:live.c, pct:live.pct, lo:live.w52lo||live.lo, hi:live.w52hi||live.hi, open:live.open||'—', vol:live.vol, name:live.name||seed?.name||ticker };
+      return { price:live.price, c:live.c, pct:live.pct, lo:live.lo, hi:live.hi, open:live.open||'—', vol:live.vol, name:live.name||ticker };
     }
     return demoData(ticker, 'MY');
   }
@@ -622,11 +628,15 @@ async function refreshAll() {
 
 // ─── SETUP / SETTINGS ─────────────────────────────────────────────────────
 function saveSettings() {
-  const key=document.getElementById('finnhub-key-input').value.trim();
-  FINNHUB_KEY=key;
-  DEMO_MODE=false;
-  localStorage.setItem('sp_finnhub',key);
-  localStorage.setItem('sp_demo','false');
+  const fkey=document.getElementById('finnhub-key-input').value.trim();
+  const tkey=document.getElementById('twelve-key-input').value.trim();
+  FINNHUB_KEY=fkey;
+  TWELVEDATA_KEY=tkey;
+  // Only demo if BOTH keys are empty
+  DEMO_MODE = (!fkey && !tkey);
+  localStorage.setItem('sp_finnhub',fkey);
+  localStorage.setItem('sp_twelve',tkey);
+  localStorage.setItem('sp_demo', DEMO_MODE ? 'true' : 'false');
   document.getElementById('setup-modal').style.display='none';
   updateSidebarStatus();
   updateApiNotice();
@@ -644,6 +654,7 @@ function useDemo() {
 
 function openSettings() {
   document.getElementById('finnhub-key-input').value=FINNHUB_KEY;
+  document.getElementById('twelve-key-input').value=TWELVEDATA_KEY;
   document.getElementById('setup-modal').style.display='flex';
   updateBadges();
 }
@@ -652,20 +663,28 @@ function updateBadges() {
   const fb=document.getElementById('badge-finnhub');
   fb.className='api-badge '+(FINNHUB_KEY?'api-set':'api-unset');
   fb.textContent='Finnhub — '+(FINNHUB_KEY?'✓ Set':'Not Set');
+  const tb=document.getElementById('badge-twelve');
+  tb.className='api-badge '+(TWELVEDATA_KEY?'api-set':'api-unset');
+  tb.textContent='Twelve Data — '+(TWELVEDATA_KEY?'✓ Set':'Not Set');
 }
 
 function updateSidebarStatus() {
   document.getElementById('sidebar-mode').textContent='Mode: '+(DEMO_MODE?'Demo':'Live');
   document.getElementById('sidebar-finnhub').textContent='Finnhub: '+(FINNHUB_KEY?'✓ Active':'Not set');
+  document.getElementById('sidebar-yahoo').textContent='Twelve Data MY: '+(TWELVEDATA_KEY?'✓ Active':'Not set');
   document.getElementById('data-mode-label').textContent=DEMO_MODE?'Demo Mode':'Live Mode';
 }
 
 function updateApiNotice() {
   const n=document.getElementById('api-notice');
   if (DEMO_MODE) {
-    n.innerHTML='<div class="notice notice-amber">⚠ Running in Demo Mode — prices are simulated. Go to ⚙ Settings to enter your Finnhub API key for real data.</div>';
+    n.innerHTML='<div class="notice notice-amber">⚠ Running in Demo Mode — prices are simulated. Go to ⚙ Settings to enter your API keys for real data.</div>';
   } else {
-    n.innerHTML='<div class="notice notice-green">✓ Live Mode active — US stocks via Finnhub · MY stocks via Yahoo Finance proxy (~15 min delay).</div>';
+    const myStatus = TWELVEDATA_KEY ? 'MY stocks via Twelve Data (KLSE)' : 'MY stocks in Demo (no Twelve Data key)';
+    const usStatus = FINNHUB_KEY ? 'US stocks via Finnhub' : 'US stocks in Demo (no Finnhub key)';
+    const color = (TWELVEDATA_KEY && FINNHUB_KEY) ? 'notice-green' : 'notice-amber';
+    const icon = (TWELVEDATA_KEY && FINNHUB_KEY) ? '✓' : '⚠';
+    n.innerHTML=`<div class="notice ${color}">${icon} Live Mode — ${usStatus} · ${myStatus}.</div>`;
   }
 }
 
